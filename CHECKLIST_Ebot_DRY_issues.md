@@ -1,18 +1,30 @@
 # CHECKLIST_Ebot_DRY_issues.md
-... (содержимое уже готового чек-листа из прошлой реплики; вставь, если не создал) ...
 
-## Статус на $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-- 1) Время/UTC ✓
-- 2) Таблица trades выбор DRY ✓
-- 3) GAP_THRESHOLD_BPS единый параметр ✓
-- 4) Логирование сигналов в файл ✓ (logs/signals.log)
-- 5) Сервисы цены/свечей под systemd ✓
-- 6.1–6.3 Сервисы/таймеры проверены; retention настроен (price: timer) ✓
-- 7.1 Таблица signals создана ✓
-- 7.2 Запись tick в signals через ORM ✓
-- 7.3 SQL-проверки сигналов за 24ч ✓ (пока SELL)
-- 8.1 Алёрт «нет BUY >24ч» ✓
-- 8.2 Дневной отчёт ✓
-- 9.1 DRY пишет только в trades_dry ✓
-- 9.2 Будущих ts нет ✓
-- 9.3 gap_bps корректен ✓
+## Цель
+Разобрать причины отсутствия сделок в DRY, починить логирование сигналов, обеспечить корректный выбор таблиц DRY/LIVE, валидировать таймстемпы и поставить мониторинг+отчёты.
+
+---
+
+## 1. Время и таймзона
+- [x] timedatectl → UTC, NTP active.
+- [x] Все метки в БД — Unix ms (UTC).
+- [x] Будущих ts нет (допуск +2 мин).
+
+Быстрая проверка:
+
+timedatectl status | sed -n '1,10p'
+
+python3 - <<PY
+import sqlite3, time
+now_ms = int(time.time()*1000) + 120000
+con = sqlite3.connect("data/ebot.db")
+cur = con.cursor()
+for name, sql in [
+  ("candles_future", "SELECT COUNT(*) FROM candles WHERE ts_ms > ?"),
+  ("current_price_future", "SELECT COUNT(*) FROM current_price WHERE ts_ms > ?"),
+]:
+    cnt = cur.execute(sql, (now_ms,)).fetchone()[0]
+    print(name, cnt)
+con.close()
+PY
+
