@@ -52,3 +52,21 @@ class OrderLive(Base):
     exchange_order_id = Column(String(64), primary_key=True)
     symbol = Column(String(40)); qty = Column(Float); price = Column(Float)
     side = Column(String(4)); status = Column(String(20)); ts_ms = Column(BigInteger)
+# --- Signals log model (append) ---
+from sqlalchemy import Column, Integer, BigInteger, String, Float
+
+class Signal(Base):
+    __tablename__ = "signals"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    ts_ms       = Column(BigInteger, nullable=False)
+    pair        = Column(String, nullable=False)
+    exchange    = Column(String, nullable=False)
+    interval    = Column(String, nullable=False)
+    signal      = Column(String, nullable=False)
+    ema_fast    = Column(Float)
+    ema_slow    = Column(Float)
+    gap_bps     = Column(Float)
+    exec_status = Column(String)
+    reason      = Column(String)
+    meta_json   = Column(String)

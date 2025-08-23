@@ -1,13 +1,7 @@
-import time
-
-def _now_ms():
-    return int(time.time()*1000)
-
 # -*- coding: utf-8 -*-
-import time, json, traceback
-from typing import Optional, Tuple
+import time, json, traceback, requests
+from typing import Optional
 import config as cfg
-import requests
 from db.base import session_scope
 from db.models import CurrentPrice
 
@@ -15,6 +9,11 @@ MEXC_TICKER_URL = "https://api.mexc.com/api/v3/ticker/bookTicker"
 SYMBOL = "BTCUSDC"
 USDCUSDT_SYMBOL = "USDCUSDT"
 POLL_SEC = int(getattr(cfg, "CURRENT_PRICE", {}).get("USDCUSDT_POLL_SEC", 5))  # from config.py
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
 
 def _mid_from_book(resp_json) -> Optional[float]:
     try:
@@ -26,6 +25,7 @@ def _mid_from_book(resp_json) -> Optional[float]:
         pass
     return None
 
+
 def fetch_pair(symbol: str) -> Optional[float]:
     try:
         r = requests.get(MEXC_TICKER_URL, params={"symbol": symbol}, timeout=5)
@@ -36,19 +36,17 @@ def fetch_pair(symbol: str) -> Optional[float]:
     except Exception:
         return None
 
+
 def main_loop():
     while True:
         ts = int(time.time() * 1000)
         mexc_mid = fetch_pair(SYMBOL)
         usdcusdt = fetch_pair(USDCUSDT_SYMBOL)
 
-        current_median = None
-        if mexc_mid is not None:
-            current_median = mexc_mid
+        current_median = mexc_mid if mexc_mid is not None else None
 
         with session_scope() as s:
-            now=_now_ms()
-row = CurrentPrice(
+            row = CurrentPrice(
                 ts_ms=ts,
                 current_median=current_median,
                 mexc_mid=mexc_mid,
@@ -59,7 +57,9 @@ row = CurrentPrice(
                 sources_count=int(mexc_mid is not None)
             )
             s.add(row)
+
         time.sleep(POLL_SEC)
+
 
 if __name__ == "__main__":
     main_loop()

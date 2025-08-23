@@ -1,79 +1,122 @@
-# DB_SCHEMA — описание структуры таблиц (без данных)
+# DB_SCHEMA.md (актуальная схема БД, SQLite)
 
-> Назначение файла: дать ИИ (и людям) представление о структуре БД.
-> Реальные секреты/доступы отсутствуют. Данные не выгружаются.
-
-## Общие соглашения
-- Временные метки: Unix ms (`BIGINT`), если не оговорено иначе.
-- Денежные и ценовые поля: DECIMAL(20,8) или аналогичный high‑precision тип.
-- JSON‑поля хранят произвольную мета‑информацию по сделке/заявкам/ошибкам.
+> Файл БД по умолчанию: **data/ebot.db** (если `DB_URL=None`).  
+> Все метки времени — **UTC в миллисекундах** (`ts_ms`).  
+> Названия столбцов и таблиц синхронизированы с `db/models.py` и VARIABLES.md.
 
 ---
 
-## Таблицы сделок
+## Таблица: `candles`
+OHLCV‑свечи по парам/биржам/интервалам.
 
-### trades_dry
-Симулированные сделки (dry‑run).
-- `id`               INTEGER PRIMARY KEY AUTOINCREMENT
-- `symbol`           TEXT            — торговая пара (напр., "BTCUSDC")
-- `exchange`         TEXT            — биржа (напр., "MEXC")
-- `interval`         TEXT            — таймфрейм (напр., "1m")
-- `side`             TEXT            — 'BUY' | 'SELL'
-- `qty`              DECIMAL(20,8)   — количество базового актива
-- `entry_price`      DECIMAL(20,8)
-- `exit_price`       DECIMAL(20,8)   — nullable, пока позиция не закрыта
-- `opened_at`        BIGINT          — ts открытия, ms
-- `closed_at`        BIGINT          — ts закрытия, ms, nullable
-- `fee_quote`        DECIMAL(20,8)   — комиссия в котируемой валюте
-- `pnl_quote`        DECIMAL(20,8)   — PnL в котируемой валюте
-- `order_ids`        TEXT            — JSON массив id ордеров
-- `meta`             TEXT            — JSON произвольных полей
+**PK (составной):** `(pair, exchange, interval, ts_ms)`
 
-### trades_live
-Реальные сделки (live‑режим). Поля идентичны `trades_dry`.
+| колонка     | тип        | описание                               |
+|-------------|------------|-----------------------------------------|
+| pair        | TEXT       | символ пары, напр. `BTCUSDT`            |
+| exchange    | TEXT       | биржа, напр. `MEXC`                     |
+| interval    | TEXT       | интервал, напр. `1m`, `5m`, `1h`        |
+| ts_ms       | INTEGER    | время открытия свечи, UTC ms            |
+| open        | REAL       |                                         |
+| high        | REAL       |                                         |
+| low         | REAL       |                                         |
+| close       | REAL       |                                         |
+| volume      | REAL       |                                         |
+
+Индексы (рекоменд.):  
+- `INDEX candles_idx_time ON candles(pair, exchange, interval, ts_ms DESC)`
 
 ---
 
-## Таблицы котировок/свечей (если включены сборщики)
+## Таблица: `current_price`
+Агрегированный «текущий» прайс и источники.
 
-### candles_1m
-Минутные свечи по активным символам/биржам (если запущены `candles_fetch`/`candles_increment`).
-- `id`        INTEGER PRIMARY KEY AUTOINCREMENT
-- `symbol`    TEXT
-- `exchange`  TEXT
-- `ts`        BIGINT         — метка открытия свечи, ms
-- `open`      DECIMAL(20,8)
-- `high`      DECIMAL(20,8)
-- `low`       DECIMAL(20,8)
-- `close`     DECIMAL(20,8)
-- `volume`    DECIMAL(28,8)
+| колонка         | тип     | описание                            |
+|-----------------|---------|------------------------------------|
+| ts_ms           | INTEGER | UTC ms                             |
+| current_median  | REAL    | медианный текущий прайс            |
+| mexc_mid        | REAL    | mid по MEXC                        |
+| binance_mid     | REAL    | mid по Binance                     |
+| bybit_mid       | REAL    | mid по Bybit                       |
+| usdc_usdt_rate  | REAL    | курс USDC/USDT                     |
+| mode            | TEXT    | режим агрегации                    |
+| sources_count   | INTEGER | число источников                   |
 
-> Примечание: имя таблицы/индексов может отличаться в вашей реализации;
-> цель — зафиксировать структуру, которой ожидают сервисы.
-
----
-
-## Балансы/кошелёк (если включён сборник балансов)
-
-### wallets_snapshot
-Срез балансов по бирже/активу.
-- `id`        INTEGER PRIMARY KEY AUTOINCREMENT
-- `exchange`  TEXT
-- `asset`     TEXT            — тикер (USDC, BTC и т.п.)
-- `free`      DECIMAL(28,8)
-- `locked`    DECIMAL(28,8)
-- `ts`        BIGINT          — время среза, ms
-- `meta`      TEXT            — JSON (например, статус/ошибки API)
+Индексы:  
+- `INDEX current_price_idx_time ON current_price(ts_ms DESC)`
 
 ---
 
-## Индексы/уникальности (рекомендации)
-- `candles_1m`: UNIQUE(`exchange`,`symbol`,`ts`)
-- `trades_*`: индексы на (`exchange`,`symbol`,`opened_at`) и (`closed_at`)
-- `wallets_snapshot`: индексы на (`exchange`,`asset`,`ts`)
+## Таблица: `trades_dry`
+Сделки в DRY‑режиме (симуляция).
+
+| колонка       | тип     | описание                               |
+|---------------|---------|-----------------------------------------|
+| id            | INTEGER | PK AUTOINCREMENT                        |
+| ts_open_ms    | INTEGER | UTC ms открытия                         |
+| ts_close_ms   | INTEGER | UTC ms закрытия (NULL если открыта)     |
+| symbol        | TEXT    | пара/символ                             |
+| exchange      | TEXT    | биржа                                   |
+| interval      | TEXT    | интервал стратегии                      |
+| entry_price   | REAL    | цена входа                              |
+| exit_price    | REAL    | цена выхода                             |
+| base_qty      | REAL    | количество базового актива              |
+| quote_spent   | REAL    | потрачено котируемого                   |
+| is_open       | INTEGER | 1/0 открыт ли                           |
+| meta_json     | TEXT    | JSON‑метаданные                         |
+
+Индексы:  
+- `INDEX trades_dry_idx_open ON trades_dry(is_open, ts_open_ms DESC)`
 
 ---
 
-## Служебные заметки
-- Фактические названия таблиц/полей возьмите из текущих миграций/моделей.
-- Этот файл предназначен для анализа ИИ и документации. Данных нет.
+## Таблица: `trades_live`
+Реальные сделки (LIVE).
+
+Структура аналогична `trades_dry`.
+
+Индексы:  
+- `INDEX trades_live_idx_open ON trades_live(is_open, ts_open_ms DESC)`
+
+---
+
+## Таблица: `wallet`
+Срез доступных средств по активам.
+
+**PK:** `(asset)`
+
+| колонка    | тип     | описание                  |
+|------------|---------|---------------------------|
+| asset      | TEXT    | тикер актива (USDC и т.п.)|
+| free       | REAL    | доступно                  |
+| locked     | REAL    | заблокировано             |
+| updated_ms | INTEGER | UTC ms последнего апдейта |
+
+---
+
+## Таблица: `orders_live` (опционально)
+Хранение ордеров биржи в LIVE.
+
+| колонка           | тип     | описание                |
+|-------------------|---------|-------------------------|
+| exchange_order_id | TEXT    | PK (уникальный id)     |
+| symbol            | TEXT    |                        |
+| qty               | REAL    |                        |
+| price             | REAL    |                        |
+| side              | TEXT    | BUY/SELL               |
+| status            | TEXT    | NEW/FILLED/CANCELED... |
+| ts_ms             | INTEGER | UTC ms                 |
+
+**PK/UNIQUE:** `exchange_order_id`
+
+---
+
+## Замечания по консистентности
+- DRY‑сделки **только** в `trades_dry`; LIVE — **только** в `trades_live`.
+- Все вычисления и хранение времени — **UTC (ms)**. Конвертация в локальные зоны — только на вывод.
+- `candles` — единая таблица для всех интервалов; интервал задаётся в поле `interval`.
+
+## Расположение БД
+- По умолчанию (если `DB_URL=None`) путь собирается как `DATA_DIR/ebot.db`, где `DATA_DIR=./data`.  
+- Итоговый файл SQLite: **`data/ebot.db`**.
+

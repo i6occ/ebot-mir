@@ -153,7 +153,7 @@ def make_candles_png(symbol: str, exchange: str, interval: str, out_path: str,
         mid_series = pd.Series(mid_raw, index=idx, name="MID")
 
     # Потенциальные сигналы: кроссы EMA -> пары B->S (стрелки)
-    gap   = float(cfg.STRATEGY.get("ENTRY_MIN_GAP_PCT", 0.0005))
+    gap   = float(cfg.STRATEGY.get("GAP_THRESHOLD_BPS", 50)) / 10000.0
     grace = int(cfg.STRATEGY.get("CROSS_GRACE_BARS", 3))
     buy_i, sell_i = find_cross_points(ema_f, ema_s, gap, grace)
     pairs_bs = pair_crosses(buy_i, sell_i)
